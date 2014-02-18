@@ -64,16 +64,18 @@ def POS_token_features(tokens):
     features for the corresponding token
     """
     folded_tokens = [t.lower() for t in tokens]
-    padded_tokens = LEFT_PAD + folded_tokens + RIGHT_PAD
+    padded_tokens = LEFT_PAD + folded_tokens + RIGHT_PAD    
     for (i, ftoken) in enumerate(padded_tokens[2:-2]):
+        # note: enumerate starts counting with 0, so even though "ftoken" is the "current token", "i" represents the index of the token two tokens before ftoken.
+         
         featset = ['b']  # initialize with bias term
         # tokens nearby
-        featset.append('w-2="{}"'.format(padded_tokens[i]))
+        featset.append('w-2="{}"'.format(padded_tokens[i])) # see above comment re: what "i" represents
         featset.append('w-1="{}"'.format(padded_tokens[i + 1]))
         featset.append('w="{}"'.format(ftoken))  # == padded_tokens[i + 2]
         featset.append('w+1="{}"'.format(padded_tokens[i + 3]))
         featset.append('w+2="{}"'.format(padded_tokens[i + 4]))
-        # "prefix" and "suffix" features
+        # "prefix" and "suffix" features - ugly math below is to handle short words.
         for j in range(1, 1 + min(len(ftoken), PRE_SUF_MAX)):
             featset.append('p({})="{}"'.format(j, ftoken[:+j]))  # prefix
             featset.append('s({})="{}"'.format(j, ftoken[-j:]))  # suffix
