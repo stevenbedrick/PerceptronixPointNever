@@ -82,8 +82,8 @@ class PPN(object):
 
     def __init__(self, sentences=None, T=1):
         self.time = 0
-        # the (outer) keys are features represented as strings; the values
-        # are (inner) dictionaries with tag keys and LazyWeight values
+        # the (outer) keys are tags;
+        # are (inner) dictionaries with feature string keys and LazyWeight values
         self.weights = defaultdict(lambda: defaultdict(LazyWeight))
         logging.info('Constructed new PPN instance.')
         if sentences:
