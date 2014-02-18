@@ -84,7 +84,7 @@ def POS_token_features(tokens):
         if any(c in digits for c in ftoken):
             featset.append('n')
         # contains an uppercase character?
-        if ftoken != tokens[i]:
+        if ftoken != tokens[i + 2]: # remember, "i" is actually two tokens back
             featset.append('u')
         # and we're done with that word
         yield featset
