@@ -42,7 +42,7 @@ RIGHT_PAD = ['</S0>', '</S1>']
 # w=X: current token
 # w+1: next token
 # w+2: two tokens ahead
-# t-1=X: previous tag
+# t-1=X: previous tag # note: this and t-2,t-1=X are both defined by POS_tag_features below, not POS_token_features
 # t-2,t-1=X: previous two tags
 # p1=X: first character
 # p2=X: first two characters
@@ -63,11 +63,9 @@ def POS_token_features(tokens):
     of a list of sets where each set contains the (non-zero) token-related
     features for the corresponding token
     """
-    folded_tokens = [t.lower() for t in tokens]
-    padded_tokens = LEFT_PAD + folded_tokens + RIGHT_PAD    
+    padded_tokens = LEFT_PAD + [t.lower() for t in tokens] + RIGHT_PAD
     for (i, ftoken) in enumerate(padded_tokens[2:-2]):
-        # note: enumerate starts counting with 0, so even though "ftoken" is the "current token", "i" represents the index of the token two tokens before ftoken.
-         
+        # note: enumerate starts counting with 0, so even though "ftoken" is the "current token", "i" represents the index of the token two tokens before ftoken
         featset = ['b']  # initialize with bias term
         # tokens nearby
         featset.append('w-2="{}"'.format(padded_tokens[i])) # see above comment re: what "i" represents
@@ -86,11 +84,10 @@ def POS_token_features(tokens):
         if any(c in digits for c in ftoken):
             featset.append('n')
         # contains an uppercase character?
-        if ftoken != tokens[i + 2]: # remember, "i" is actually two tokens back
+        if ftoken != tokens[i]: # which doesn't have padding or case folding in it
             featset.append('u')
         # and we're done with that word
         yield featset
-
 
 @Listify
 def POS_tag_features(tags):
@@ -99,14 +96,13 @@ def POS_tag_features(tags):
     form of a list of sets (as above)
     """
     padded_tags = LEFT_PAD + list(tags)
-    for i in range(len(padded_tags) - 2):
-        yield ['t-1="{}"'.format(padded_tags[i + 1]),
-               't-2="{}",t-1="{}"'.format(*padded_tags[i:i + 2])]
-
+    for i in xrange(len(padded_tags) - 2):
+        yield tag_featset(padded_tags[i + 1], padded_tags[i])
 
 # tag features for the start of a sentence
-TAG_START_FEATS = POS_tag_features([None])[0]
-
+def tag_featset(tag_minus_1=LEFT_PAD[1], tag_minus_2=LEFT_PAD[0]):
+    return ['t-1="{}"'.format(tag_minus_1),
+            't-2="{}"'.format(tag_minus_2, tag_minus_1)]
 
 # TODO NP-chunking features (from Collins 2002):
 #

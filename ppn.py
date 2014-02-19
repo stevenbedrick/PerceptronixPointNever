@@ -38,7 +38,7 @@ from numpy.random import permutation
 
 from lazyweight import LazyWeight
 from decorators import Listify, Setify
-from features import POS_tag_features, POS_token_features, TAG_START_FEATS
+from features import *
 
 ## defaults and (pseudo)-globals
 VERSION_NUMBER = 0.2
@@ -46,7 +46,7 @@ TRAINING_ITERATIONS = 10
 INF = float('inf')
 
 ## set jsonpickle to do it human-readable
-jsonpickle.set_encoder_options('simplejson', indent=4)
+jsonpickle.set_encoder_options('simplejson', separators=(',', ':'), indent=' ')
 
 ## usage string
 USAGE = """Perceptronix Point Never {}, by Kyle Gorman <gormanky@ohsu.edu>
@@ -116,10 +116,15 @@ class PPN(object):
         tagset = set()
         for (tags, _, _) in sentence_features:
             tagset.update(tags)
-        return {tag: i for (i, tag) in enumerate(tagset)}
+        return {i: tag for (i, tag) in enumerate(tagset)} 
         
     def train(self, sentences, T=1):
         logging.info('Extracting input features for training.')
+
+        # "sentfeats" is a list, each element in the list represents a sentence...
+        # each sentence is a triple of three lists...
+        # the first list is a list of tags, the second is a list of token_feature lists,
+        # and the third is a list of tag_feature lists
         sentfeats = PPN._get_features(sentences)
         # construct dictionary mapping from tag to index in trellis
         self.tag_index = PPN._get_tag_index(sentfeats)
@@ -130,7 +135,7 @@ class PPN(object):
             for (gtags, tokfeats, tagfeats) in permutation(sentfeats):
                 # compare hypothesized tagging to gold standard
                 htags = self._feature_tag_greedy(tokfeats)
-                #htags = self._feature_tag(tokfeats, tagfeats)
+                #htags = self._feature_tag(tokfeats)
                 for (htag, gtag, tokf, tagf) in zip(htags, gtags, \
                                                     tokfeats, tagfeats):
                     if htag == gtag:
@@ -174,55 +179,86 @@ class PPN(object):
         Deprecated: doesn't use Viterbi decoding (though it still works
         pretty well!), or even preceding tag hypotheses
         """
+        
+        # tokfeats is a list of token_feature lists representing the calculated features for a sentence's tokens
+        # each token_feature element is a list of computed features for a given token
         tags = []
-        for featset in tokfeats:
+        for featset in tokfeats: # for each "token"
             best_tag = None
             best_score = -INF
-            for tag in self.tag_index.iterkeys():
-                tag_ptr = self.weights[tag]
+            for tag in self.tag_index.itervalues(): # for each possible tag we could assign to this token...
+                tag_ptr = self.weights[tag] # tag_ptr will be a hash mapping observed feature values to weights in the context of this tag
                 tag_score = sum(tag_ptr[feat].get(self.time) for
                                 feat in featset)
-                if tag_score > best_score:
+                if tag_score > best_score: # is this the best one we've seene yet?
                     best_tag = tag
                     best_score = tag_score
             tags.append(best_tag)
         return tags
 
-    def _feature_tag(self, tokfeats, tagfeats):
+    def _feature_tag(self, tokfeats):
         """
         Tag a sentence from a list of sets of token features; note this
         returns a list of tags, not a list of (token, tag) tuples
         """
-        L = len(tokfeats)
-        Lt = len(self.tag_index)
+        L = len(tokfeats) # len of sentence, in tokens
+        Lt = len(self.tag_index) + 1 # num possible tags, plus one for the start state
+        if L == 0:
+            return []
+        elif L == 1:
+            return self._feature_tag_greedy(tokfeats)
+            # FIXME this is deprecated...
+        tags = []
         trellis = zeros((L, Lt), dtype=int)
         bckptrs = -ones((L, Lt), dtype=int)
         # populate trellis with sum of token feature weights
         for (t, featset) in enumerate(tokfeats):
-            for (tag, i) in self.tag_index.iteritems():
-                tagptr = self.weights[tag]
-                trellis[t, i] = sum(tagptr[feat].get(self.time) for
-                                    feat in featset)
-        # add in Viterbi tag weights
-        print trellis
-        return []
-        """
-        # for each time t
-        for t in xrange(L):
-            # for each possible tag at time `t`
-            for (tag, i) in self.tag_index.iteritems():
+            for (i, tag) in self.tag_index.iteritems():
                 tagptr = self.weights[tag]
                 trellis[t, i] += sum(tagptr[feat].get(self.time) for
-                                     feat in ???)
-                # for each possible tag at t - 1 (one tag back)
-                for tag_t_minus_1:
-                    # for each possible tag at t -2 (two tags back)
-                    for tag_t_minus_2:
-        #trellis = zeros(size, dtype=int)    # large natural numbers
-        #backptrs = -ones(size, dtype=int8)  # small natural numbers
-        # FIXME not actually using Viterbi decoding yet
-        return tag_sequence
-        """
+                                     feat in featset)
+        # special case for first tag
+        featset = tag_featset()
+        for (i, tag) in self.tag_index.iteritems():
+            tagptr = self.weights[tag]
+            trellis[0, i] += sum(tagptr[feat].get(self.time) for feat in featset)
+            backptrs[0, i] = Lt # we're using Lt (num tags + 1) as a symbolic representation of the "start" state
+        # special case for second tag
+        for (i, tag) in self.tag_index.iteritems():
+            tagptr = self.weights[tag]
+            best_inbound_arc = -1
+            best_inbound_score = -INF
+            for (j, previous_tag) in self.tag_index.iteritems():
+                featset = tag_featset(previous_tag)
+                transition_weight = sum(tagptr[feat].get(self.time) for feat in featset)
+                if transition_weight > best_transition_weight:
+                    best_transition_index = j
+                    best_transition_weight = transition_weight
+            trellis[1, i] += best_transition_weight
+            backptrs[1, i] = best_transition_index
+        # normal case!
+        for t in xrange(2, L): # for each token, starting after the two special cases we've already handled
+            for (i, tag) in self.tag_index.iteritems(): # for each tag
+                tagptr = self.weights[tag]
+                for (j, previous_tag) in self.tag_index.iteritems():
+                    best_inbound_arc_to_previous_tag = backptrs[t - 1, j]
+                    featset = tag_featset(previous_tag, self.tag_index[best_inbound_arc_to_previous_tag])
+                    transition_weight = sum(tagptr[feat].get(self.time) for feat in featset)
+                    if transition_weight > best_transition_weight:
+                        best_transition_index = j
+                        best_transition_weight = transition_weight
+                trellis[t, i] += best_transition_weight
+                backptrs[t, i] = best_transition_index
+        # figure out where to "start" backtracing from
+        t = L - 1
+        state_indices = zeros(L, dtype=int)
+        previous_state_index = trellis[t, :].argmax()
+        while t >= 0:
+            state_indices[t] = previous_state_index
+            state_indices[t - 1] = backptrs[t, previous_state_index]
+            t -= 1
+        # look up tags using backtrace indices
+        return [self.tag_index[i] for i in state_indices]
 
     def evaluate(self, sentences):
         """
